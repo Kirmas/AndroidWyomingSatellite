@@ -1,0 +1,30 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "files.exclude": {
+      "**/.gradle": true,
+      "**/build": true,
+      "**/.idea": true
+    },
+    "gradle.nestedProjects": true,
+    "android.showNonAndroidProjects": false,
+    "[kotlin]": {
+      "editor.defaultFormatter": "fwcd.kotlin",
+      "editor.tabSize": 4
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "vscjava.vscode-java-pack",
+      "fwcd.kotlin",
+      "vscjava.vscode-gradle",
+      "dialegro.vscode-android"
+    ]
+  }
+}

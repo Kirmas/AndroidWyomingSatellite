@@ -1,0 +1,12 @@
+{
+    "java.project.resourceFilters": [
+        "node_modules",
+        ".git",
+        "**/build/**",
+        "**/.gradle/**"
+    ],
+    "files.watcherExclude": {
+        "**/build/**": true,
+        "**/.gradle/**": true
+    }
+}
