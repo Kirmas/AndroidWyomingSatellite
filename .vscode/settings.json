@@ -9,4 +9,17 @@
         "**/build/**": true,
         "**/.gradle/**": true
     }
+
+    ,"files.exclude": {
+        "**/build": true,
+        "**/.gradle": true
+    },
+    "search.exclude": {
+        "**/build/**": true,
+        "**/.gradle/**": true
+    },
+    // Disable Java/Gradle auto-import and build config updates to avoid background locking
+    "java.import.gradle.enabled": false,
+    "java.import.maven.enabled": false,
+    "java.configuration.updateBuildConfiguration": "disabled"
 }
