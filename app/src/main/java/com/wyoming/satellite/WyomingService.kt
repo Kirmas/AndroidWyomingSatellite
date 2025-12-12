@@ -26,6 +26,8 @@ class WyomingService : Service() {
     // private var wyomingClient: WyomingClient? = null
     private var audioProcessor: AudioProcessor? = null
     private var wakeWordDetector: WakeWordDetector? = null
+    // Debug helper
+    private var debugAudioRecorder: DebugAudioRecorder? = null
     
     // private var serverAddress: String = ""
     // private var serverPort: Int = 10700
@@ -38,6 +40,23 @@ class WyomingService : Service() {
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Service started")
+        // Handle debug actions if provided
+        intent?.action?.let { action ->
+            when (action) {
+                ACTION_START_DEBUG_RECORD -> {
+                    debugAudioRecorder?.start()
+                    return START_STICKY
+                }
+                ACTION_PLAY_DEBUG -> {
+                    // Play current buffer without changing recording state
+                    debugAudioRecorder?.play()
+                    return START_STICKY
+                }
+                else -> {
+                    // ignore other actions
+                }
+            }
+        }
         
         // Get server configuration from intent
         // intent?.let {
@@ -66,6 +85,9 @@ class WyomingService : Service() {
                     // Process audio chunk
                     handleAudioChunk(audioData)
                 }
+
+                // Initialize debug helper together with other components
+                audioProcessor?.let { debugAudioRecorder = DebugAudioRecorder(audioProcessor = it) }
                 
                 // Initialize Wyoming client
                 // wyomingClient = WyomingClient(serverAddress, serverPort) { event ->
@@ -90,6 +112,8 @@ class WyomingService : Service() {
     private fun handleAudioChunk(audioData: ShortArray) {
         serviceScope.launch {
             try {
+                // Append to debug buffer (debug helper handles whether it's recording)
+                debugAudioRecorder?.addAudio(audioData)
                 // Check for wake word (returns score as Float?)
                 val score = wakeWordDetector?.detectWakeWord(audioData)
                 
@@ -163,5 +187,10 @@ class WyomingService : Service() {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pendingIntent)
             .build()
+    }
+
+    companion object {
+        const val ACTION_START_DEBUG_RECORD = "com.wyoming.satellite.action.START_DEBUG_RECORD"
+        const val ACTION_PLAY_DEBUG = "com.wyoming.satellite.action.PLAY_DEBUG"
     }
 }

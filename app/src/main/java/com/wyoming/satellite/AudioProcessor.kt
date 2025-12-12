@@ -24,6 +24,8 @@ class AudioProcessor(
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var isRecording = false
+    private val playbackLock = Any()
+    private var playbackThread: Thread? = null
     
     fun startRecording() {
         if (isRecording) {
@@ -100,45 +102,77 @@ class AudioProcessor(
         }
     }
     
-    suspend fun playAudio(audioData: ShortArray) = withContext(Dispatchers.IO) {
-        try {
-            val bufferSize = AudioTrack.getMinBufferSize(
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AUDIO_FORMAT
-            )
-            
-            audioTrack = AudioTrack.Builder()
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .setEncoding(AUDIO_FORMAT)
+    /**
+     * Play audio asynchronously. This method returns immediately and playback
+     * runs on a dedicated thread managed by AudioProcessor. If a previous
+     * playback thread is active, it will be interrupted before starting the
+     * new one.
+     */
+    fun playAudio(audioData: ShortArray) {
+        synchronized(playbackLock) {
+            // Interrupt previous playback if still running; playback thread will
+            // perform cleanup of its AudioTrack in finally block.
+            playbackThread?.let {
+                if (it.isAlive) {
+                    try { it.interrupt() } catch (_: Exception) {}
+                }
+            }
+
+            playbackThread = Thread {
+                try {
+                    val bufferSize = AudioTrack.getMinBufferSize(
+                        SAMPLE_RATE,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AUDIO_FORMAT
+                    )
+
+                    audioTrack = AudioTrack.Builder()
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setSampleRate(SAMPLE_RATE)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                .setEncoding(AUDIO_FORMAT)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(bufferSize)
                         .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .build()
-            
-            audioTrack?.play()
-            audioTrack?.write(audioData, 0, audioData.size)
-            
-            // Wait for playback to finish
-            Thread.sleep((audioData.size * 1000L / SAMPLE_RATE))
-            
-            audioTrack?.stop()
-            audioTrack?.release()
-            audioTrack = null
-            
-            Log.d(TAG, "Audio playback finished")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error playing audio", e)
+
+                    audioTrack?.play()
+                    audioTrack?.write(audioData, 0, audioData.size)
+
+                    // Sleep to allow playback to finish (approximate)
+                    try {
+                        Thread.sleep((audioData.size * 1000L / SAMPLE_RATE))
+                    } catch (_: InterruptedException) {
+                        // If interrupted while sleeping, just proceed to stop/cleanup
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error playing audio", e)
+                } finally {
+                    try {
+                        audioTrack?.stop()
+                    } catch (_: Exception) {}
+                    try {
+                        audioTrack?.release()
+                    } catch (_: Exception) {}
+                    audioTrack = null
+                }
+            }
+
+            playbackThread?.start()
         }
     }
     
     fun cleanup() {
         stopRecording()
-        audioTrack?.release()
+        // Stop any ongoing playback thread
+        synchronized(playbackLock) {
+            playbackThread?.let {
+                try { it.interrupt() } catch (_: Exception) {}
+            }
+            playbackThread = null
+        }
+        try { audioTrack?.release() } catch (_: Exception) {}
         audioTrack = null
     }
 }

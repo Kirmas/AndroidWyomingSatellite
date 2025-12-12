@@ -20,6 +20,8 @@ class MainActivity : AppCompatActivity() {
     }
     
     private lateinit var startButton: Button
+    private lateinit var startDebugButton: Button
+    private lateinit var playDebugButton: Button
     private lateinit var statusText: TextView
     
     private val PERMISSION_REQUEST_CODE = 100
@@ -32,6 +34,8 @@ class MainActivity : AppCompatActivity() {
         
         // Initialize views
         startButton = findViewById(R.id.startButton)
+        startDebugButton = findViewById(R.id.startDebugButton)
+        playDebugButton = findViewById(R.id.playDebugButton)
         statusText = findViewById(R.id.statusText)
         
         // Set button listeners
@@ -42,6 +46,21 @@ class MainActivity : AppCompatActivity() {
             } else {
                 requestPermissions()
             }
+        }
+
+        startDebugButton.setOnClickListener {
+            Log.d(TAG, "Start debug record clicked")
+            val intent = Intent(this, WyomingService::class.java).apply {
+                action = WyomingService.ACTION_START_DEBUG_RECORD
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+            Toast.makeText(this, "Debug recording started", Toast.LENGTH_SHORT).show()
+        }
+
+        playDebugButton.setOnClickListener {
+            Log.d(TAG, "Play debug clicked")
+            val intent = Intent(this, WyomingService::class.java).apply { action = WyomingService.ACTION_PLAY_DEBUG }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         }
         
         updateUI()
