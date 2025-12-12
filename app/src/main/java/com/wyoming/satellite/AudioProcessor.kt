@@ -38,8 +38,8 @@ class AudioProcessor(
                 AUDIO_FORMAT
             ) * 2 // Double buffer for safety
             
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                audioRecord = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 SAMPLE_RATE,
                 CHANNEL_CONFIG,
                 AUDIO_FORMAT,
