@@ -6,17 +6,20 @@
         "**/.gradle/**"
     ],
     "files.watcherExclude": {
-        "**/build/**": true,
-        "**/.gradle/**": true
+        "**/app/build/**": true,
+        "**/.gradle/**": true,
+        "**/build/**": true
     }
 
     ,"files.exclude": {
-        "**/build": true,
-        "**/.gradle": true
+        "**/app/build/**": true,
+        "**/.gradle/**": true,
+        "**/build/**": true
     },
     "search.exclude": {
-        "**/build/**": true,
-        "**/.gradle/**": true
+        "**/app/build/**": true,
+        "**/.gradle/**": true,
+        "**/build/**": true
     },
     // Disable Java/Gradle auto-import and build config updates to avoid background locking
     "java.import.gradle.enabled": false,

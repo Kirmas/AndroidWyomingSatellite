@@ -10,4 +10,6 @@
     <string name="default_server">192.168.0.181</string>
     <string name="default_port">10700</string>
     <string name="test_panel_ip">192.168.0.53</string>
+    <string name="nav_open">Open navigation</string>
+    <string name="nav_close">Close navigation</string>
 </resources>

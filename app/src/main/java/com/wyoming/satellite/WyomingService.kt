@@ -21,7 +21,8 @@ class WyomingService : Service() {
     private val CHANNEL_ID = "wyoming_satellite_channel"
     private val NOTIFICATION_ID = 1
     
-    private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
+    private val serviceJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
     
     // private var wyomingClient: WyomingClient? = null
     private var audioProcessor: AudioProcessor? = null
@@ -35,6 +36,13 @@ class WyomingService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
+        isRunning = true
+        // notify UI that the service has started
+        try {
+            sendBroadcast(Intent("com.wyoming.satellite.action.SERVICE_STARTED"))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to broadcast service started", e)
+        }
         createNotificationChannel()
     }
     
@@ -142,7 +150,14 @@ class WyomingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed")
-        
+        // mark stopped and notify UI
+        isRunning = false
+        try {
+            sendBroadcast(Intent("com.wyoming.satellite.action.SERVICE_STOPPED"))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to broadcast service stopped", e)
+        }
+
         // Clean up resources
         audioProcessor?.stopRecording()
         // wyomingClient?.disconnect()
@@ -151,6 +166,8 @@ class WyomingService : Service() {
         serviceScope.launch {
             // Cancel all coroutines
         }
+        // Cancel job to avoid leaks
+        try { serviceJob.cancel() } catch (_: Exception) {}
     }
     
     override fun onBind(intent: Intent?): IBinder? {
@@ -190,7 +207,10 @@ class WyomingService : Service() {
     }
 
     companion object {
+        @Volatile var isRunning: Boolean = false
         const val ACTION_START_DEBUG_RECORD = "com.wyoming.satellite.action.START_DEBUG_RECORD"
         const val ACTION_PLAY_DEBUG = "com.wyoming.satellite.action.PLAY_DEBUG"
+        const val ACTION_SERVICE_STARTED = "com.wyoming.satellite.action.SERVICE_STARTED"
+        const val ACTION_SERVICE_STOPPED = "com.wyoming.satellite.action.SERVICE_STOPPED"
     }
 }
