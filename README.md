@@ -44,7 +44,7 @@ Wyoming Protocol satellite для Home Assistant на Android.
    - Android
 
 2. Встановити залежності:
-   - JDK 17
+   - JDK 21 (Java 21) — рекомендовано для компіляції проекту
    - Android SDK Platform 34
    - Build-tools 34.0.0
 

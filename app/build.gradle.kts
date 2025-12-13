@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Ensure Kotlin uses Java 21 toolchain for compilation
+kotlin {
+    jvmToolchain(21)
+}
+
 android {
     namespace = "com.wyoming.satellite"
     compileSdk = 34
