@@ -18,6 +18,7 @@ import com.wyoming.satellite.AudioConstants
 
 class WyomingService : Service() {
     private var lastNonSilenceTime = 0L
+    private var lastWakeWordTime = 0L
     
     private val TAG = "WyomingService"
     private val CHANNEL_ID = "wyoming_satellite_channel"
@@ -26,7 +27,8 @@ class WyomingService : Service() {
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
     
-    // private var wyomingClient: WyomingClient? = null
+    private var wyomingClient: WyomingClient? = null
+    @Volatile private var isStreamingToServer = false
     private var audioProcessor: AudioProcessor? = null
     private var wakeWordDetector: WakeWordDetector? = null
     // Debug helper
@@ -37,9 +39,6 @@ class WyomingService : Service() {
     private val audioBufferLock = Object()
     private var audioProcessingThread: Thread? = null
     @Volatile private var audioProcessingThreadRunning = false
-    
-    // private var serverAddress: String = ""
-    // private var serverPort: Int = 10700
     
     override fun onCreate() {
         super.onCreate()
@@ -106,13 +105,13 @@ class WyomingService : Service() {
                 audioProcessor?.let { debugAudioRecorder = DebugAudioRecorder(audioProcessor = it) }
                 
                 // Initialize Wyoming client
-                // wyomingClient = WyomingClient(serverAddress, serverPort) { event ->
-                //     // Handle Wyoming events
-                //     handleWyomingEvent(event)
-                // }
-                
-                // Connect to Wyoming server
-                // wyomingClient?.connect()
+                // TODO: replace with real serverAddress/serverPort
+                wyomingClient = WyomingClient() { event ->
+                    // Handle Wyoming events
+                    // handleWyomingEvent(event)
+                }
+                // Connect to Wyoming server (if needed)
+                // serviceScope.launch { wyomingClient?.connect() }
                 
                 // Start audio capture
                 audioProcessor?.startRecording()
@@ -138,6 +137,11 @@ class WyomingService : Service() {
             lastNonSilenceTime = now
         } else {
             if (now - lastNonSilenceTime > AudioConstants.SILENCE_SKIP_DURATION_MS) {
+                // Якщо йде стрімінг — зупиняємо
+                if (isStreamingToServer) {
+                    isStreamingToServer = false
+                    Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, handleAudioChunk)")
+                }
                 return
             }
         }
@@ -175,19 +179,29 @@ class WyomingService : Service() {
                 Thread.sleep(30)
                 continue
             }
+            val now = System.currentTimeMillis()
             for (audioData in audioChunks) {
                 try {
-                    // Append to debug buffer (debug helper handles whether it's recording)
                     debugAudioRecorder?.addAudio(audioData)
-                    // Check for wake word (returns score as Float?)
-                    val score = wakeWordDetector?.detectWakeWord(audioData)
-                    // Score > 0.05 means wake word detected
-                    if (score != null && score > 0.05f) {
-                        Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
-                        // wyomingClient?.sendWakeWordDetected()
+                    if (!isStreamingToServer){
+                        val score = wakeWordDetector?.detectWakeWord(audioData)
+                        if (score != null && score > 0.05f) {
+                            Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
+                            wyomingClient?.sendWakeWordDetected()
+                            isStreamingToServer = true
+                            lastWakeWordTime = now
+                        }
                     }
-                    // Send audio to server (when actively listening)
-                    // This will be controlled by Wyoming protocol state machine
+
+                    if (isStreamingToServer) {
+                        wyomingClient?.sendAudioChunk(audioData)
+                        // Stop streaming if silence timeout
+                        if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
+                            isStreamingToServer = false
+                            Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, processing thread)")
+                        }
+                        continue
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing audio chunk in thread", e)
                 }

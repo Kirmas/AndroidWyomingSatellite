@@ -10,8 +10,6 @@ import java.io.PrintWriter
 import java.net.Socket
 
 class WyomingClient(
-    private val serverAddress: String,
-    private val serverPort: Int,
     private val eventCallback: (String) -> Unit
 ) {
     private val TAG = "WyomingClient"
@@ -19,24 +17,21 @@ class WyomingClient(
     private var writer: PrintWriter? = null
     private var reader: BufferedReader? = null
     private var isConnected = false
+    private val serverAddress = "192.168.0.100" // TODO: get from config or discovery
+    private val serverPort = 10700 // TODO: get from config or discovery
     
     suspend fun connect() = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Connecting to $serverAddress:$serverPort")
-            
             socket = Socket(serverAddress, serverPort)
             writer = PrintWriter(socket!!.getOutputStream(), true)
             reader = BufferedReader(InputStreamReader(socket!!.getInputStream()))
-            
             isConnected = true
             Log.d(TAG, "Connected to Wyoming server")
-            
             // Send describe event
             sendDescribe()
-            
             // Start listening for events
             startListening()
-            
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to Wyoming server", e)
             isConnected = false
@@ -153,7 +148,7 @@ class WyomingClient(
         sendMessage(message)
     }
     
-    fun sendAudioChunk(audioData: ByteArray) {
+    fun sendAudioChunk(audioData: ShortArray) {
         // Send audio chunk to server
         // This will be implemented with proper binary encoding
         Log.d(TAG, "Sending audio chunk: ${audioData.size} bytes")
