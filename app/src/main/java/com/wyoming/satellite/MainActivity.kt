@@ -70,10 +70,13 @@ class MainActivity : AppCompatActivity() {
         navigationView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_debug -> startActivity(Intent(this, DebugActivity::class.java))
-                R.id.nav_config -> startActivity(Intent(this, ConfigActivity::class.java))
+                R.id.nav_config -> {
+                    val intent = Intent(this, ConfigActivity::class.java)
+                    startActivityForResult(intent, 1001)
+                }
             }
             drawerLayout.closeDrawers()
-            true
+            return@setNavigationItemSelectedListener true
         }
 
         // Set button listener
@@ -92,6 +95,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateUI()
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1001 && resultCode == RESULT_OK) {
+            // Config was changed, restart WyomingService if running
+            if (WyomingService.isRunning) {
+                stopWyomingService()
+                window.decorView.postDelayed({
+                    startWyomingService()
+                }, 500)
+            }
+        }
     }
     
     private fun checkPermissions(): Boolean {
@@ -146,15 +162,7 @@ class MainActivity : AppCompatActivity() {
     private fun startWyomingService() {
         Log.d(TAG, "Starting WyomingService")
 
-        val prefs = getSharedPreferences("wyoming_settings", MODE_PRIVATE)
-        val address = prefs.getString("server_address", getString(R.string.default_server)) ?: ""
-        val port = prefs.getString("server_port", getString(R.string.default_port)) ?: "10700"
-
-        val intent = Intent(this, WyomingService::class.java).apply {
-            putExtra("server_address", address)
-            putExtra("server_port", port.toIntOrNull() ?: 10700)
-        }
-
+        val intent = Intent(this, WyomingService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

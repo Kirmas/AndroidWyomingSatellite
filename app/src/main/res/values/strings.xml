@@ -5,6 +5,7 @@
     <string name="stop_service">Stop Satellite</string>
     <string name="status_running">Running</string>
     <string name="status_stopped">Stopped</string>
+    <string name="status_verifying">Verifying models...</string>
     <string name="server_address">Server Address</string>
     <string name="server_port">Server Port</string>
     <string name="default_server">192.168.0.181</string>

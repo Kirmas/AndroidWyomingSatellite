@@ -118,6 +118,7 @@ class WyomingService : Service() {
     }
     
     private fun handleAudioChunk(audioData: ShortArray) {
+        if (!isRunning) return
         serviceScope.launch {
             try {
                 // Append to debug buffer (debug helper handles whether it's recording)
@@ -148,9 +149,17 @@ class WyomingService : Service() {
     // }
     
     override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "Service destroyed")
-        // mark stopped and notify UI
+        // 1. Stop audio streaming first
+        audioProcessor?.stopRecording()
+
+        // 2. (Optional) Wait for audio callbacks to finish (if needed, add delay or callback sync here)
+        // For now, assume stopRecording is synchronous or callbacks are drained
+
+        // 3. Clean up detector and other resources
+        wakeWordDetector?.cleanup()
+        // wyomingClient?.disconnect()
+
+        // 4. Mark stopped and notify UI
         isRunning = false
         try {
             sendBroadcast(Intent("com.wyoming.satellite.action.SERVICE_STOPPED"))
@@ -158,16 +167,14 @@ class WyomingService : Service() {
             Log.w(TAG, "Failed to broadcast service stopped", e)
         }
 
-        // Clean up resources
-        audioProcessor?.stopRecording()
-        // wyomingClient?.disconnect()
-        wakeWordDetector?.cleanup()
-        
+        // 5. Cancel coroutines and job
         serviceScope.launch {
             // Cancel all coroutines
         }
-        // Cancel job to avoid leaks
         try { serviceJob.cancel() } catch (_: Exception) {}
+
+        Log.d(TAG, "Service destroyed")
+        super.onDestroy()
     }
     
     override fun onBind(intent: Intent?): IBinder? {

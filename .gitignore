@@ -1,3 +1,6 @@
+## Ignore test user models content, but keep the folder
+/test_user_model/*
+!/test_user_model/DO_NOT_DELETE.txt
 .gradle/
 build/
 local.properties
