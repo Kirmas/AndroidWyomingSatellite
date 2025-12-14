@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import com.wyoming.satellite.AudioConstants
 
 class WyomingService : Service() {
+    private var listeningOverlay: ListeningOverlay? = null
     private var lastNonSilenceTime = 0L
     private var lastWakeWordTime = 0L
     
@@ -140,6 +141,8 @@ class WyomingService : Service() {
                 // Якщо йде стрімінг — зупиняємо
                 if (isStreamingToServer) {
                     isStreamingToServer = false
+                    listeningOverlay?.hide()
+                    listeningOverlay = null
                     Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, handleAudioChunk)")
                 }
                 return
@@ -190,6 +193,9 @@ class WyomingService : Service() {
                             wyomingClient?.sendWakeWordDetected()
                             isStreamingToServer = true
                             lastWakeWordTime = now
+                            
+                            listeningOverlay = ListeningOverlay(this)
+                            listeningOverlay?.show()
                         }
                     }
 
@@ -199,6 +205,8 @@ class WyomingService : Service() {
                         if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
                             isStreamingToServer = false
                             Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, processing thread)")
+                            listeningOverlay?.hide()
+                            listeningOverlay = null
                         }
                         continue
                     }
@@ -225,6 +233,7 @@ class WyomingService : Service() {
     // }
     
     override fun onDestroy() {
+        listeningOverlay?.hide()
         // 1. Stop audio streaming first
         audioProcessor?.stopRecording()
 
