@@ -8,6 +8,7 @@ import ai.onnxruntime.OrtSession
 import java.nio.FloatBuffer
 import java.util.*
 import java.io.File
+import com.wyoming.satellite.AudioConstants
 
 /**
  * Wake Word Detector based on OpenWakeWord
@@ -24,14 +25,11 @@ class WakeWordDetector(private val context: Context) {
     
     companion object {
         private const val TAG = "WakeWordDetector"
-        private const val SAMPLE_RATE = 16000
         private const val THRESHOLD = 0.05f
         private const val MEL_FRAMES_NEEDED = 76
         private const val FEATURE_FRAMES_NEEDED = 16
-        private const val N_SAMPLES_PER_FEATURE = 1280 // 80ms at 16kHz
-        
+        private const val N_SAMPLES_PER_FEATURE = 1280 // 80ms at AudioConstants.SAMPLE_RATE
         // Voice Activity Detection parameters
-        private const val RMS_SILENCE_THRESHOLD = 0.01f
         private const val SILENCE_DURATION_THRESHOLD = 1500L // 1.5 sec
         private const val SPEECH_PAUSE_THRESHOLD = 300L // 0.3 sec (природна пауза між словами)
     }
@@ -58,7 +56,7 @@ class WakeWordDetector(private val context: Context) {
     private var wakeWordSession: OrtSession? = null
     
     // Audio buffering (10 seconds max)
-    private val rawDataBuffer = ArrayDeque<Float>(SAMPLE_RATE * 10)
+    private val rawDataBuffer = ArrayDeque<Float>(AudioConstants.SAMPLE_RATE * 10)
     private var rawDataRemainder = FloatArray(0)
     private var accumulatedSamples = 0
     
@@ -113,7 +111,7 @@ class WakeWordDetector(private val context: Context) {
             }
             
             // Pre-fill feature buffer with random data (like original Java code)
-            val randomAudio = FloatArray(16000 * 4) { (Random().nextInt(2000) - 1000) / 32768.0f }
+            val randomAudio = FloatArray(AudioConstants.SAMPLE_RATE * 4) { (Random().nextInt(2000) - 1000) / AudioConstants.PCM16_MAX.toFloat() }
             featureBuffer = getEmbeddings(randomAudio, 76, 8)
             
             Log.i(TAG, "✅ Wake word detector initialized successfully")
@@ -132,21 +130,29 @@ class WakeWordDetector(private val context: Context) {
 
 
     fun detectWakeWord(audioChunk: ShortArray): Float? {
+        Log.d(TAG, "detectWakeWord called, audioChunk.size=${audioChunk.size}")
         try {
+            Log.d(TAG, "Calculating RMS for diagnostics")
             // Calculate RMS for diagnostics
             val rms = calculateRMS(audioChunk)
             lastRms = rms
             lastDiagTime = System.currentTimeMillis()
             lastIsSpeaking = isSpeaking
 
+            Log.d(TAG, "RMS=$rms, lastDiagTime=$lastDiagTime, lastIsSpeaking=$lastIsSpeaking")
+
             // Convert short to float [-1.0, 1.0]
+            Log.d(TAG, "Converting audioChunk to floatBuffer")
             val floatBuffer = FloatArray(audioChunk.size) { i ->
-                audioChunk[i] / 32768.0f
+                audioChunk[i] / AudioConstants.PCM16_MAX.toFloat()
             }
+
+            Log.d(TAG, "Calling predictWakeWord with floatBuffer.size=${floatBuffer.size}")
 
             return predictWakeWord(floatBuffer)
 
         } catch (e: Exception) {
+            Log.e(TAG, "Exception in detectWakeWord", e)
             Log.e(TAG, "Error detecting wake word", e)
             return null
         }
@@ -158,103 +164,27 @@ class WakeWordDetector(private val context: Context) {
     private fun calculateRMS(audioChunk: ShortArray): Float {
         var sum = 0.0
         for (sample in audioChunk) {
-            val normalized = sample / 32768.0
+            val normalized = sample.toDouble() / AudioConstants.PCM16_MAX
             sum += normalized * normalized
         }
         return kotlin.math.sqrt(sum / audioChunk.size).toFloat()
     }
     
     /**
-     * Process voice activity and log state changes
-     * @return true if speaking, false if silence
-     */
-    private fun processVoiceActivity(rms: Float): Boolean {
-        val currentTime = System.currentTimeMillis()
-        
-        if (rms > RMS_SILENCE_THRESHOLD) {
-            // Speech detected
-            if (!isSpeaking) {
-                // Calculate pause duration if there was recent speech
-                val timeSinceLastSpeech = if (lastSpeechEndTime > 0) {
-                    currentTime - lastSpeechEndTime
-                } else {
-                    Long.MAX_VALUE
-                }
-                
-                // Only log if this is truly new speech (not just a pause between words)
-                if (timeSinceLastSpeech >= SPEECH_PAUSE_THRESHOLD) {
-                    // This is new speech after silence
-                    if (silenceStartTime > 0) {
-                        currentSilenceDuration = currentTime - silenceStartTime
-                        if (currentSilenceDuration >= SILENCE_DURATION_THRESHOLD) {
-                            //Log.i(TAG, "🔇 Тиша закінчилась (тривала ${currentSilenceDuration}ms)")
-                        }
-                    }
-                    
-                    //Log.i(TAG, "🎤 Голос почався (RMS: %.4f)".format(rms))
-                    speechStartTime = currentTime
-                } else {
-                    // This is continuation after short pause - restore speech start time
-                    if (speechStartTime == 0L) {
-                        speechStartTime = currentTime
-                    }
-                    //Log.i(TAG, "⏸️ Пауза між словами: ${timeSinceLastSpeech}ms (продовження)")
-                }
-                
-                isSpeaking = true
-                silenceStartTime = 0
-            }
-            
-        } else {
-            // Silence detected
-            if (isSpeaking) {
-                // Mark potential speech end, but don't log yet
-                lastSpeechEndTime = currentTime
-                
-                // Only truly end speech after checking next chunks
-                isSpeaking = false
-                
-            } else if (lastSpeechEndTime > 0) {
-                // Check if silence persists beyond pause threshold
-                val silenceDuration = currentTime - lastSpeechEndTime
-                
-                if (silenceDuration >= SPEECH_PAUSE_THRESHOLD && speechStartTime > 0) {
-                    // Real speech end confirmed
-                    currentSpeechDuration = lastSpeechEndTime - speechStartTime
-                    //Log.i(TAG, "🗣️ Голос закінчився (тривав ${currentSpeechDuration}ms)")
-                    speechStartTime = 0
-                    silenceStartTime = lastSpeechEndTime
-                }
-                
-                // Log prolonged silence
-                if (silenceDuration >= SILENCE_DURATION_THRESHOLD && 
-                    silenceDuration < SILENCE_DURATION_THRESHOLD + 100) {
-                    //Log.i(TAG, "🔇 Тиша почалась (>1.5 сек, RMS: %.4f)".format(rms))
-                        // Очищення аудіо буферів при тривалій тиші
-                       // rawDataBuffer.clear()
-                       // rawDataRemainder = FloatArray(0)
-                }
-                
-            } else if (silenceStartTime == 0L && speechStartTime == 0L) {
-                // Initial silence (app just started)
-                silenceStartTime = currentTime
-            }
-        }
-        
-        return isSpeaking
-    }
-    
-    /**
      * Main prediction function (equivalent to predict_WakeWord in Java)
      */
     private fun predictWakeWord(audioBuffer: FloatArray): Float? {
+        Log.d(TAG, "predictWakeWord called, audioBuffer.size=${audioBuffer.size}")
         // Update features with new audio
+        Log.d(TAG, "Calling streamingFeatures")
         streamingFeatures(audioBuffer)
         
         // Get last 16 features for classification
+        Log.d(TAG, "Getting last $FEATURE_FRAMES_NEEDED features for classification")
         val features = getFeatures(FEATURE_FRAMES_NEEDED, -1) ?: return null
         
         // Run wake word classifier
+        Log.d(TAG, "Calling runWakeWordModel with features.size=${features.size}, features[0].size=${features[0].size}")
         return runWakeWordModel(features)
     }
     
@@ -262,42 +192,55 @@ class WakeWordDetector(private val context: Context) {
      * Process streaming audio and update feature buffer
      */
     private fun streamingFeatures(audioBuffer: FloatArray) {
+        Log.d(TAG, "streamingFeatures called, audioBuffer.size=${audioBuffer.size}")
         var audioBuf = audioBuffer
         accumulatedSamples = 0
+        Log.d(TAG, "accumulatedSamples reset to 0")
         
         // Concatenate with remainder from previous call
         if (rawDataRemainder.isNotEmpty()) {
+            Log.d(TAG, "Concatenating rawDataRemainder.size=${rawDataRemainder.size} with audioBuffer.size=${audioBuffer.size}")
             audioBuf = rawDataRemainder + audioBuffer
             rawDataRemainder = FloatArray(0)
         }
         
         // Process in chunks of 1280 samples
+        Log.d(TAG, "Processing in chunks: accumulatedSamples=$accumulatedSamples, audioBuf.size=${audioBuf.size}")
         if (accumulatedSamples + audioBuf.size >= N_SAMPLES_PER_FEATURE) {
             val remainder = (accumulatedSamples + audioBuf.size) % N_SAMPLES_PER_FEATURE
+            Log.d(TAG, "Chunk remainder: $remainder")
             
             if (remainder != 0) {
                 // Split into even chunks and remainder
+                Log.d(TAG, "Splitting into evenChunks and remainder")
                 val evenChunks = audioBuf.copyOfRange(0, audioBuf.size - remainder)
                 bufferRawData(evenChunks)
                 accumulatedSamples += evenChunks.size
                 rawDataRemainder = audioBuf.copyOfRange(audioBuf.size - remainder, audioBuf.size)
+                Log.d(TAG, "evenChunks.size=${evenChunks.size}, new accumulatedSamples=$accumulatedSamples, rawDataRemainder.size=${rawDataRemainder.size}")
             } else {
                 // Perfect chunk size
+                Log.d(TAG, "Perfect chunk size, buffering all audioBuf")
                 bufferRawData(audioBuf)
                 accumulatedSamples += audioBuf.size
+                Log.d(TAG, "new accumulatedSamples=$accumulatedSamples")
                 rawDataRemainder = FloatArray(0)
             }
         } else {
+            Log.d(TAG, "Not enough samples for a chunk, buffering all audioBuf")
             accumulatedSamples += audioBuf.size
+            Log.d(TAG, "new accumulatedSamples=$accumulatedSamples")
             bufferRawData(audioBuf)
         }
         
         // Process accumulated samples
+        Log.d(TAG, "Processing accumulatedSamples=$accumulatedSamples for melSpectrogram and embeddings")
         if (accumulatedSamples >= N_SAMPLES_PER_FEATURE && accumulatedSamples % N_SAMPLES_PER_FEATURE == 0) {
             streamingMelSpectrogram(accumulatedSamples)
             
             // Generate embeddings from mel spectrogram
             val numChunks = accumulatedSamples / N_SAMPLES_PER_FEATURE
+            Log.d(TAG, "numChunks=$numChunks")
             
             for (i in numChunks - 1 downTo 0) {
                 val ndx = if (-8 * i == 0) melSpectrogramBuffer.size else -8 * i
@@ -305,6 +248,7 @@ class WakeWordDetector(private val context: Context) {
                 val end = ndx
                 
                 // Extract 76 frames window
+                Log.d(TAG, "Extracting window: i=$i, ndx=$ndx, start=$start, end=$end")
                 val window = Array(1) { Array(76) { Array(32) { FloatArray(1) } } }
                 
                 for (j in start until end) {
@@ -315,6 +259,7 @@ class WakeWordDetector(private val context: Context) {
                 
                 if (window[0].size == 76) {
                     try {
+                        Log.d(TAG, "Generating embeddings for window $i")
                         val newFeatures = generateEmbeddings(window)
                         
                         // Append to feature buffer
@@ -323,22 +268,26 @@ class WakeWordDetector(private val context: Context) {
                         } else {
                             featureBuffer!! + newFeatures
                         }
+                        Log.d(TAG, "Appended newFeatures.size=${newFeatures.size} to featureBuffer, featureBuffer.size=${featureBuffer?.size}")
                         
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error generating embeddings", e)
+                        Log.e(TAG, "Error generating embeddings for window $i", e)
                     }
                 }
             }
             
             accumulatedSamples = 0
+            Log.d(TAG, "accumulatedSamples reset to 0 after processing")
         }
         
         // Trim feature buffer to max length (120)
         featureBuffer?.let { buffer ->
             if (buffer.size > 120) {
+                Log.d(TAG, "Trimming featureBuffer from size=${buffer.size} to 120")
                 featureBuffer = buffer.copyOfRange(buffer.size - 120, buffer.size)
             }
         }
+        Log.d(TAG, "streamingFeatures finished, featureBuffer.size=${featureBuffer?.size}")
     }
     
     /**
@@ -346,7 +295,7 @@ class WakeWordDetector(private val context: Context) {
      */
     private fun bufferRawData(data: FloatArray) {
         // Remove old data if buffer is full
-        while (rawDataBuffer.size + data.size > SAMPLE_RATE * 10) {
+        while (rawDataBuffer.size + data.size > AudioConstants.SAMPLE_RATE * 10) {
             rawDataBuffer.poll()
         }
         
@@ -502,6 +451,7 @@ class WakeWordDetector(private val context: Context) {
      * Run wake word classification model
      */
     private fun runWakeWordModel(features: Array<Array<FloatArray>>): Float {
+        Log.d(TAG, "runWakeWordModel called, features.size=${features.size}, features[0].size=${features[0].size}")
         val env = ortEnvironment ?: throw IllegalStateException("ONNX environment not initialized")
         val session = wakeWordSession ?: throw IllegalStateException("Wake word session not initialized")
 
@@ -514,6 +464,7 @@ class WakeWordDetector(private val context: Context) {
             "empty"
         }
 
+        Log.d(TAG, "Creating inputTensor for ONNX, featureLen=$featureLen")
         val inputTensor = OnnxTensor.createTensor(env, features)
         val results = session.run(mapOf(session.inputNames.first() to inputTensor))
         val output = results[0].value as Array<FloatArray>
@@ -523,6 +474,7 @@ class WakeWordDetector(private val context: Context) {
 
         val score = output[0][0]
 
+        Log.d(TAG, "Wake word model output score=$score")
         if (score >= 0.001f) {
             Log.i(TAG, "Wake word score: %.5f (threshold: %.2f) | features: %d | RMS: %.4f | time: %d | preview: [%s] | speaking: %b"
                 .format(score, THRESHOLD, lastFeatureBufferSize, lastRms, lastDiagTime, lastFeaturePreview, lastIsSpeaking))
@@ -532,6 +484,7 @@ class WakeWordDetector(private val context: Context) {
             }
         }
 
+        Log.d(TAG, "runWakeWordModel finished")
         return score
     }
 

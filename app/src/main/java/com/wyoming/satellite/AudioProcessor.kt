@@ -16,7 +16,6 @@ class AudioProcessor(
     private val TAG = "AudioProcessor"
     
     // Audio configuration matching Wyoming protocol requirements
-    private val SAMPLE_RATE = 16000 // 16kHz
     private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
     private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     private val CHUNK_SIZE = 1280 // 80ms at 16kHz (matches openWakeWord requirements)
@@ -35,14 +34,14 @@ class AudioProcessor(
         
         try {
             val bufferSize = AudioRecord.getMinBufferSize(
-                SAMPLE_RATE,
+                AudioConstants.SAMPLE_RATE,
                 CHANNEL_CONFIG,
                 AUDIO_FORMAT
             ) * 2 // Double buffer for safety
             
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                AudioConstants.SAMPLE_RATE,
                 CHANNEL_CONFIG,
                 AUDIO_FORMAT,
                 bufferSize
@@ -56,7 +55,7 @@ class AudioProcessor(
             audioRecord?.startRecording()
             isRecording = true
             
-            Log.d(TAG, "Audio recording started - Sample rate: $SAMPLE_RATE, Chunk size: $CHUNK_SIZE")
+            Log.d(TAG, "Audio recording started - Sample rate: ${AudioConstants.SAMPLE_RATE}, Chunk size: $CHUNK_SIZE")
             
             // Start audio capture loop
             startAudioCaptureLoop()
@@ -121,7 +120,7 @@ class AudioProcessor(
             playbackThread = Thread {
                 try {
                     val bufferSize = AudioTrack.getMinBufferSize(
-                        SAMPLE_RATE,
+                        AudioConstants.SAMPLE_RATE,
                         AudioFormat.CHANNEL_OUT_MONO,
                         AUDIO_FORMAT
                     )
@@ -129,7 +128,7 @@ class AudioProcessor(
                     audioTrack = AudioTrack.Builder()
                         .setAudioFormat(
                             AudioFormat.Builder()
-                                .setSampleRate(SAMPLE_RATE)
+                                .setSampleRate(AudioConstants.SAMPLE_RATE)
                                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                                 .setEncoding(AUDIO_FORMAT)
                                 .build()
@@ -142,7 +141,7 @@ class AudioProcessor(
 
                     // Sleep to allow playback to finish (approximate)
                     try {
-                        Thread.sleep((audioData.size * 1000L / SAMPLE_RATE))
+                        Thread.sleep((audioData.size * 1000L / AudioConstants.SAMPLE_RATE))
                     } catch (_: InterruptedException) {
                         // If interrupted while sleeping, just proceed to stop/cleanup
                     }

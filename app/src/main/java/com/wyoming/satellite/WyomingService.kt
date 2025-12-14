@@ -14,8 +14,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import com.wyoming.satellite.AudioConstants
 
 class WyomingService : Service() {
+    private var lastNonSilenceTime = 0L
     
     private val TAG = "WyomingService"
     private val CHANNEL_ID = "wyoming_satellite_channel"
@@ -29,6 +31,12 @@ class WyomingService : Service() {
     private var wakeWordDetector: WakeWordDetector? = null
     // Debug helper
     private var debugAudioRecorder: DebugAudioRecorder? = null
+
+    // Audio buffer for not-yet-processed data (10 seconds max)
+    private val notProcessingAudioData = ArrayDeque<ShortArray>()
+    private val audioBufferLock = Object()
+    private var audioProcessingThread: Thread? = null
+    @Volatile private var audioProcessingThreadRunning = false
     
     // private var serverAddress: String = ""
     // private var serverPort: Int = 10700
@@ -90,7 +98,7 @@ class WyomingService : Service() {
                 
                 // Initialize audio processor
                 audioProcessor = AudioProcessor(applicationContext) { audioData ->
-                    // Process audio chunk
+                    // Just buffer audio chunk
                     handleAudioChunk(audioData)
                 }
 
@@ -108,6 +116,9 @@ class WyomingService : Service() {
                 
                 // Start audio capture
                 audioProcessor?.startRecording()
+
+                // Start audio processing thread
+                startAudioProcessingThread()
                 
                 Log.d(TAG, "All components initialized successfully")
                 
@@ -119,26 +130,80 @@ class WyomingService : Service() {
     
     private fun handleAudioChunk(audioData: ShortArray) {
         if (!isRunning) return
-        serviceScope.launch {
-            try {
-                // Append to debug buffer (debug helper handles whether it's recording)
-                debugAudioRecorder?.addAudio(audioData)
-                // Check for wake word (returns score as Float?)
-                val score = wakeWordDetector?.detectWakeWord(audioData)
-                
-                // Score > 0.05 means wake word detected
-                if (score != null && score > 0.05f) {
-                    Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
-                    // wyomingClient?.sendWakeWordDetected()
-                }
-                
-                // Send audio to server (when actively listening)
-                // This will be controlled by Wyoming protocol state machine
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing audio chunk", e)
+
+        // Simple RMS-based silence/noise filter
+        val rms = calculateRMS(audioData)
+        val now = System.currentTimeMillis()
+        if (rms > AudioConstants.RMS_SILENCE_THRESHOLD) {
+            Log.d(TAG, "Non-silent audio chunk received (RMS: $rms)")
+            lastNonSilenceTime = now
+        } else {
+            if (now - lastNonSilenceTime > AudioConstants.SILENCE_SKIP_DURATION_MS) {
+                // Пропускаємо chunk як шум/тишину
+                Log.d(TAG, "Skipping silent audio chunk (RMS: $rms)")
+                return
             }
         }
+
+        synchronized(audioBufferLock) {
+            // Keep buffer up to 10 seconds (SAMPLE_RATE * 10 / chunkSize)
+            val maxChunks = (AudioConstants.SAMPLE_RATE * 10) / audioData.size
+            if (notProcessingAudioData.size >= maxChunks) {
+                notProcessingAudioData.removeFirst()
+            }
+            notProcessingAudioData.addLast(audioData)
+        }
+    }
+
+    // RMS calculation for silence/noise filter
+    private fun calculateRMS(audioChunk: ShortArray): Float {
+        var sum = 0.0
+        for (sample in audioChunk) {
+            val normalized = sample.toDouble() / AudioConstants.PCM16_MAX
+            sum += normalized * normalized
+        }
+        return kotlin.math.sqrt(sum / audioChunk.size).toFloat()
+    }
+
+    private fun startAudioProcessingThread() {
+        audioProcessingThreadRunning = true
+        audioProcessingThread = Thread {
+        while (audioProcessingThreadRunning) {
+            val audioChunks: List<ShortArray>
+            synchronized(audioBufferLock) {
+                audioChunks = notProcessingAudioData.toList()
+                notProcessingAudioData.clear()
+            }
+            if (audioChunks.isEmpty()) {
+                Thread.sleep(30)
+                continue
+            }
+            for (audioData in audioChunks) {
+                try {
+                    // Append to debug buffer (debug helper handles whether it's recording)
+                    debugAudioRecorder?.addAudio(audioData)
+                    // Check for wake word (returns score as Float?)
+                    val score = wakeWordDetector?.detectWakeWord(audioData)
+                    // Score > 0.05 means wake word detected
+                    if (score != null && score > 0.05f) {
+                        Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
+                        // wyomingClient?.sendWakeWordDetected()
+                    }
+                    // Send audio to server (when actively listening)
+                    // This will be controlled by Wyoming protocol state machine
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing audio chunk in thread", e)
+                }
+            }
+        }
+        }
+        audioProcessingThread?.start()
+    }
+
+    private fun stopAudioProcessingThread() {
+        audioProcessingThreadRunning = false
+        audioProcessingThread?.interrupt()
+        audioProcessingThread = null
     }
     
     // private fun handleWyomingEvent(event: String) {
@@ -152,14 +217,17 @@ class WyomingService : Service() {
         // 1. Stop audio streaming first
         audioProcessor?.stopRecording()
 
-        // 2. (Optional) Wait for audio callbacks to finish (if needed, add delay or callback sync here)
+        // 2. Stop audio processing thread
+        stopAudioProcessingThread()
+
+        // 3. (Optional) Wait for audio callbacks to finish (if needed, add delay or callback sync here)
         // For now, assume stopRecording is synchronous or callbacks are drained
 
-        // 3. Clean up detector and other resources
+        // 4. Clean up detector and other resources
         wakeWordDetector?.cleanup()
         // wyomingClient?.disconnect()
 
-        // 4. Mark stopped and notify UI
+        // 5. Mark stopped and notify UI
         isRunning = false
         try {
             sendBroadcast(Intent("com.wyoming.satellite.action.SERVICE_STOPPED"))
@@ -167,7 +235,7 @@ class WyomingService : Service() {
             Log.w(TAG, "Failed to broadcast service stopped", e)
         }
 
-        // 5. Cancel coroutines and job
+        // 6. Cancel coroutines and job
         serviceScope.launch {
             // Cancel all coroutines
         }

@@ -4,7 +4,7 @@ import android.media.AudioFormat
 import android.util.Log
 
 class DebugAudioRecorder(
-    private val sampleRate: Int = 16000,
+    private val sampleRate: Int = AudioConstants.SAMPLE_RATE,
     private val seconds: Int = 30,
     private val audioProcessor: AudioProcessor
 ) {
