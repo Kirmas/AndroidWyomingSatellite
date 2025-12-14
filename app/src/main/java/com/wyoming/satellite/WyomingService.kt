@@ -135,12 +135,9 @@ class WyomingService : Service() {
         val rms = calculateRMS(audioData)
         val now = System.currentTimeMillis()
         if (rms > AudioConstants.RMS_SILENCE_THRESHOLD) {
-            Log.d(TAG, "Non-silent audio chunk received (RMS: $rms)")
             lastNonSilenceTime = now
         } else {
             if (now - lastNonSilenceTime > AudioConstants.SILENCE_SKIP_DURATION_MS) {
-                // Пропускаємо chunk як шум/тишину
-                Log.d(TAG, "Skipping silent audio chunk (RMS: $rms)")
                 return
             }
         }
