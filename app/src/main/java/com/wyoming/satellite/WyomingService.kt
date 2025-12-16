@@ -15,10 +15,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.wyoming.satellite.AudioConstants
+import com.konovalov.vad.webrtc.VadWebRTC
+import com.konovalov.vad.webrtc.config.SampleRate as WebRTCSampleRate
+import com.konovalov.vad.webrtc.config.FrameSize as WebRTCFrameSize
+import com.konovalov.vad.webrtc.config.Mode as WebRTCMode
+import com.konovalov.vad.silero.VadSilero
+import com.konovalov.vad.silero.config.SampleRate as SileroSampleRate
+import com.konovalov.vad.silero.config.FrameSize as SileroFrameSize
+import com.konovalov.vad.silero.config.Mode as SileroMode
 
 class WyomingService : Service() {
     private var listeningOverlay: ListeningOverlay? = null
-    private var lastNonSilenceTime = 0L
     private var lastWakeWordTime = 0L
     
     private val TAG = "WyomingService"
@@ -32,6 +39,11 @@ class WyomingService : Service() {
     @Volatile private var isStreamingToServer = false
     private var audioProcessor: AudioProcessor? = null
     private var wakeWordDetector: WakeWordDetector? = null
+    // VAD
+    private var vadWebRTC: VadWebRTC? = null
+    private var vadWebRTCTailChunk: ShortArray? = null
+    private var vadSilero: VadSilero? = null
+    private var vadSileroTailChunk: ShortArray? = null
     // Debug helper
     private var debugAudioRecorder: DebugAudioRecorder? = null
 
@@ -40,6 +52,9 @@ class WyomingService : Service() {
     private val audioBufferLock = Object()
     private var audioProcessingThread: Thread? = null
     @Volatile private var audioProcessingThreadRunning = false
+
+    // For overlap: store last half-chunk
+    private var lastHalfChunk: ShortArray? = null
     
     override fun onCreate() {
         super.onCreate()
@@ -96,6 +111,23 @@ class WyomingService : Service() {
                 wakeWordDetector = WakeWordDetector(applicationContext)
                 wakeWordDetector?.initialize()
                 
+                vadWebRTC = VadWebRTC(
+                    sampleRate = WebRTCSampleRate.SAMPLE_RATE_16K,
+                    frameSize = WebRTCFrameSize.FRAME_SIZE_320,
+                    mode = WebRTCMode.VERY_AGGRESSIVE,
+                    silenceDurationMs = 300,
+                    speechDurationMs = 50
+                )
+
+                vadSilero = VadSilero(
+                    applicationContext,
+                    sampleRate = SileroSampleRate.SAMPLE_RATE_16K,
+                    frameSize = SileroFrameSize.FRAME_SIZE_512,
+                    mode = SileroMode.NORMAL,
+                    silenceDurationMs = 300,
+                    speechDurationMs = 50
+                )
+
                 // Initialize audio processor
                 audioProcessor = AudioProcessor(applicationContext) { audioData ->
                     // Just buffer audio chunk
@@ -130,23 +162,16 @@ class WyomingService : Service() {
     
     private fun handleAudioChunk(audioData: ShortArray) {
         if (!isRunning) return
-
-        // Simple RMS-based silence/noise filter
-        val rms = calculateRMS(audioData)
-        val now = System.currentTimeMillis()
-        if (rms > AudioConstants.RMS_SILENCE_THRESHOLD) {
-            lastNonSilenceTime = now
-        } else {
-            if (now - lastNonSilenceTime > AudioConstants.SILENCE_SKIP_DURATION_MS) {
-                // Якщо йде стрімінг — зупиняємо
-                if (isStreamingToServer) {
-                    isStreamingToServer = false
-                    listeningOverlay?.hide()
-                    listeningOverlay = null
-                    Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, handleAudioChunk)")
-                }
-                return
+        
+        if (!isVadSpeechChunk(audioData, vadType = "webrtc")) {
+            // Якщо йде стрімінг — зупиняємо
+            if (isStreamingToServer) {
+                isStreamingToServer = false
+                listeningOverlay?.hide()
+                listeningOverlay = null
+                Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, handleAudioChunk)")
             }
+            return
         }
 
         synchronized(audioBufferLock) {
@@ -157,6 +182,72 @@ class WyomingService : Service() {
             }
             notProcessingAudioData.addLast(audioData)
         }
+    }
+
+    private fun isVadSpeechChunk(audioData: ShortArray, vadType: String = "webrtc"): Boolean {
+        val startTime = System.currentTimeMillis()
+        var retValue = false
+
+        if (vadType == "webrtc") {
+            vadWebRTC?.let { vad ->
+                var combinedChunk: ShortArray?
+                if  (vadWebRTCTailChunk != null) {
+                    combinedChunk = ShortArray(vadWebRTCTailChunk!!.size + audioData.size)
+                    System.arraycopy(vadWebRTCTailChunk!!, 0, combinedChunk, 0, vadWebRTCTailChunk!!.size)
+                    System.arraycopy(audioData, 0, combinedChunk, vadWebRTCTailChunk!!.size, audioData.size)
+                } else {
+                    combinedChunk = audioData
+                }
+                val numChunks = combinedChunk.size / vad.frameSize.value
+                for (i in 0 until numChunks) {
+                    val start = i * vad.frameSize.value
+                    val end = start + vad.frameSize.value
+                    val subChunk = combinedChunk.copyOfRange(start, end)
+                    if (vad.isSpeech(subChunk)) {
+                        retValue = true
+                    }
+                }
+                // Save tail chunk for next call
+                val remaining = combinedChunk.size % vad.frameSize.value
+                if (remaining > 0) {
+                    vadWebRTCTailChunk = combinedChunk.copyOfRange(combinedChunk.size - remaining, combinedChunk.size)
+                } else {
+                    vadWebRTCTailChunk = null
+                }
+            }
+        }
+        else if (vadType == "silero") {
+            vadSilero?.let { vad ->
+                var combinedChunk2: ShortArray?
+                if  (vadSileroTailChunk != null) {
+                    combinedChunk2 = ShortArray(vadSileroTailChunk!!.size + audioData.size)
+                    System.arraycopy(vadSileroTailChunk!!, 0, combinedChunk2, 0, vadSileroTailChunk!!.size)
+                    System.arraycopy(audioData, 0, combinedChunk2, vadSileroTailChunk!!.size, audioData.size)
+                } else {
+                    combinedChunk2 = audioData
+                }
+                val numChunks = combinedChunk2.size / vad.frameSize.value
+                for (i in 0 until numChunks) {
+                    val start = i * vad.frameSize.value
+                    val end = start + vad.frameSize.value
+                    val subChunk = combinedChunk2.copyOfRange(start, end)
+                    if (vad.isSpeech(subChunk)) {
+                        retValue = true
+                    }
+                }
+                // Save tail chunk for next call
+                val remaining2 = combinedChunk2.size % vad.frameSize.value
+                if (remaining2 > 0) {
+                    vadSileroTailChunk = combinedChunk2.copyOfRange(combinedChunk2.size - remaining2, combinedChunk2.size)
+                } else {
+                    vadSileroTailChunk = null
+                }
+            }
+        }
+
+        val elapsed = System.currentTimeMillis() - startTime
+        if(elapsed > 80) Log.d(TAG, "isVadSpeechChunk execution time: $elapsed ms (vadType=$vadType)")
+        return retValue
     }
 
     // RMS calculation for silence/noise filter
@@ -172,49 +263,63 @@ class WyomingService : Service() {
     private fun startAudioProcessingThread() {
         audioProcessingThreadRunning = true
         audioProcessingThread = Thread {
-        while (audioProcessingThreadRunning) {
-            val audioChunks: List<ShortArray>
-            synchronized(audioBufferLock) {
-                audioChunks = notProcessingAudioData.toList()
-                notProcessingAudioData.clear()
-            }
-            if (audioChunks.isEmpty()) {
-                Thread.sleep(30)
-                continue
-            }
-            val now = System.currentTimeMillis()
-            for (audioData in audioChunks) {
-                try {
-                    debugAudioRecorder?.addAudio(audioData)
-                    if (!isStreamingToServer){
-                        val score = wakeWordDetector?.detectWakeWord(audioData)
-                        if (score != null && score > 0.05f) {
-                            Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
-                            wyomingClient?.sendWakeWordDetected()
-                            isStreamingToServer = true
-                            lastWakeWordTime = now
-                            
-                            listeningOverlay = ListeningOverlay(this)
-                            listeningOverlay?.show()
-                        }
-                    }
+            while (audioProcessingThreadRunning) {
+                val audioChunks: List<ShortArray>
+                synchronized(audioBufferLock) {
+                    audioChunks = notProcessingAudioData.toList()
+                    notProcessingAudioData.clear()
+                }
+                if (audioChunks.isEmpty()) {
+                    Thread.sleep(30)
+                    continue
+                }
+                val now = System.currentTimeMillis()
+                for (audioData in audioChunks) {
+                    try {
+                        debugAudioRecorder?.addAudio(audioData)
 
-                    if (isStreamingToServer) {
-                        wyomingClient?.sendAudioChunk(audioData)
-                        // Stop streaming if silence timeout
-                        if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
-                            isStreamingToServer = false
-                            Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, processing thread)")
-                            listeningOverlay?.hide()
-                            listeningOverlay = null
+                        if (!isStreamingToServer) {
+                            // --- Overlap logic start ---
+                            /*val chunkSize = audioData.size
+                            val halfSize = chunkSize / 2
+                            var overlappedChunk: ShortArray? = null
+                            if (lastHalfChunk != null && lastHalfChunk!!.size == halfSize) {
+                                overlappedChunk = ShortArray(chunkSize)
+                                System.arraycopy(lastHalfChunk!!, 0, overlappedChunk, 0, halfSize)
+                                System.arraycopy(audioData, 0, overlappedChunk, halfSize, halfSize)
+                            }
+                            lastHalfChunk = audioData.copyOfRange(halfSize, chunkSize)*/
+                            // --- Overlap logic end ---
+
+                            //val score2 = overlappedChunk?.let { wakeWordDetector?.detectWakeWord(it) }
+                            val score = wakeWordDetector?.detectWakeWord(audioData)
+                            //val score = maxOf(score1 ?: 0f, score2 ?: 0f)
+                            if (score != null && score > 0.05f) {
+                                Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
+                                wyomingClient?.sendWakeWordDetected()
+                                isStreamingToServer = true
+                                lastWakeWordTime = now
+                                listeningOverlay = ListeningOverlay(this)
+                                listeningOverlay?.show()
+                            }
                         }
-                        continue
+
+                        if (isStreamingToServer) {
+                            wyomingClient?.sendAudioChunk(audioData)
+                            // Stop streaming if silence timeout
+                            if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
+                                isStreamingToServer = false
+                                Log.i(TAG, "⏹️ Stop streaming to server (silence timeout, processing thread)")
+                                listeningOverlay?.hide()
+                                listeningOverlay = null
+                            }
+                            continue
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing audio chunk in thread", e)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error processing audio chunk in thread", e)
                 }
             }
-        }
         }
         audioProcessingThread?.start()
     }

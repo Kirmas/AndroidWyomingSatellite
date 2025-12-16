@@ -8,6 +8,7 @@ kotlin {
     jvmToolchain(21)
 }
 
+
 android {
     namespace = "com.wyoming.satellite"
     compileSdk = 34
@@ -52,6 +53,9 @@ android {
 }
 
 dependencies {
+    implementation("com.github.gkonovalov.android-vad:webrtc:2.0.10")
+    implementation("com.github.gkonovalov.android-vad:silero:2.0.10")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")

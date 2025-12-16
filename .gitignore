@@ -2,6 +2,7 @@
 /test_user_model/*
 !/test_user_model/DO_NOT_DELETE.txt
 .gradle/
+.kotlin/
 build/
 local.properties
 *.iml
