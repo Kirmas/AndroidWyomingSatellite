@@ -11,8 +11,11 @@ class BootReceiver : BroadcastReceiver() {
     private val TAG = "BootReceiver"
 
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d(TAG, "Device booted — checking permissions to auto-start service")
+        if (intent == null) return
+        val action = intent.action
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            (action == Intent.ACTION_PACKAGE_REPLACED && intent.data?.schemeSpecificPart == context.packageName)) {
+            Log.d(TAG, "System event ($action) — checking permissions to auto-start service")
 
             val recordPermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
             val notifPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -23,7 +26,6 @@ class BootReceiver : BroadcastReceiver() {
 
             if (recordPermission == android.content.pm.PackageManager.PERMISSION_GRANTED &&
                 notifPermission == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-
                 try {
                     val svcIntent = Intent(context, WyomingService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -31,9 +33,9 @@ class BootReceiver : BroadcastReceiver() {
                     } else {
                         context.startService(svcIntent)
                     }
-                    Log.i(TAG, "WyomingService auto-started after boot")
+                    Log.i(TAG, "WyomingService auto-started after $action")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to start service on boot", e)
+                    Log.e(TAG, "Failed to start service on $action", e)
                 }
             } else {
                 Log.i(TAG, "Required permissions not granted — not starting service")

@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_debug -> startActivity(Intent(this, DebugActivity::class.java))
                 R.id.nav_config -> {
                     val intent = Intent(this, ConfigActivity::class.java)
+                    @Suppress("DEPRECATION")
                     startActivityForResult(intent, 1001)
                 }
             }

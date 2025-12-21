@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.wyoming.satellite.AudioConstants
+import com.wyoming.satellite.WyomingSatelliteServer
 import com.konovalov.vad.webrtc.VadWebRTC
 import com.konovalov.vad.webrtc.config.SampleRate as WebRTCSampleRate
 import com.konovalov.vad.webrtc.config.FrameSize as WebRTCFrameSize
@@ -35,7 +36,7 @@ class WyomingService : Service() {
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
     
-    private var wyomingClient: WyomingClient? = null
+    private var wyomingServer: WyomingSatelliteServer? = null
     @Volatile private var isStreamingToServer = false
     private var audioProcessor: AudioProcessor? = null
     private var wakeWordDetector: WakeWordDetector? = null
@@ -137,14 +138,12 @@ class WyomingService : Service() {
                 // Initialize debug helper together with other components
                 audioProcessor?.let { debugAudioRecorder = DebugAudioRecorder(audioProcessor = it) }
                 
-                // Initialize Wyoming client
-                // TODO: replace with real serverAddress/serverPort
-                wyomingClient = WyomingClient() { event ->
-                    // Handle Wyoming events
+                // Initialize Wyoming Satellite server
+                wyomingServer = WyomingSatelliteServer(port = 10700, eventCallback = { event: String ->
+                    // Handle Wyoming protocol events from client (HA)
                     // handleWyomingEvent(event)
-                }
-                // Connect to Wyoming server (if needed)
-                // serviceScope.launch { wyomingClient?.connect() }
+                })
+                wyomingServer?.start()
                 
                 // Start audio capture
                 audioProcessor?.startRecording()
@@ -279,24 +278,10 @@ class WyomingService : Service() {
                         debugAudioRecorder?.addAudio(audioData)
 
                         if (!isStreamingToServer) {
-                            // --- Overlap logic start ---
-                            /*val chunkSize = audioData.size
-                            val halfSize = chunkSize / 2
-                            var overlappedChunk: ShortArray? = null
-                            if (lastHalfChunk != null && lastHalfChunk!!.size == halfSize) {
-                                overlappedChunk = ShortArray(chunkSize)
-                                System.arraycopy(lastHalfChunk!!, 0, overlappedChunk, 0, halfSize)
-                                System.arraycopy(audioData, 0, overlappedChunk, halfSize, halfSize)
-                            }
-                            lastHalfChunk = audioData.copyOfRange(halfSize, chunkSize)*/
-                            // --- Overlap logic end ---
-
-                            //val score2 = overlappedChunk?.let { wakeWordDetector?.detectWakeWord(it) }
                             val score = wakeWordDetector?.detectWakeWord(audioData)
-                            //val score = maxOf(score1 ?: 0f, score2 ?: 0f)
                             if (score != null && score > 0.05f) {
                                 Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
-                                wyomingClient?.sendWakeWordDetected()
+                                wyomingServer?.sendWakeWordDetected("default")
                                 isStreamingToServer = true
                                 lastWakeWordTime = now
                                 listeningOverlay = ListeningOverlay(this)
@@ -305,7 +290,7 @@ class WyomingService : Service() {
                         }
 
                         if (isStreamingToServer) {
-                            wyomingClient?.sendAudioChunk(audioData)
+                            wyomingServer?.sendAudioFrame(audioData)
                             // Stop streaming if silence timeout
                             if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
                                 isStreamingToServer = false
@@ -350,7 +335,7 @@ class WyomingService : Service() {
 
         // 4. Clean up detector and other resources
         wakeWordDetector?.cleanup()
-        // wyomingClient?.disconnect()
+        wyomingServer?.stop()
 
         // 5. Mark stopped and notify UI
         isRunning = false

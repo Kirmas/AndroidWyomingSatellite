@@ -29,8 +29,10 @@ class ListeningOverlay(private val context: Context) {
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         }
         // Wake up screen if off
+        @Suppress("DEPRECATION")
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!powerManager.isInteractive) {
+            @Suppress("DEPRECATION")
             wakeLock = powerManager.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "WyomingService:WakeWordOverlay"
@@ -45,14 +47,15 @@ class ListeningOverlay(private val context: Context) {
             setPadding(60, 40, 60, 40)
             gravity = Gravity.CENTER
         }
+        @Suppress("DEPRECATION")
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             android.graphics.PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.CENTER

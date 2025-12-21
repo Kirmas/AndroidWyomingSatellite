@@ -19,7 +19,7 @@ import com.wyoming.satellite.AudioConstants
  * 2. embedding_model.onnx - generates embeddings from mel spectrogram
  * 3. selected wake-word model (e.g. hey_nabu.onnx) - classifies embeddings for wake word detection
  */
-
+//https://github.com/dscripka/openWakeWord/blob/main/openwakeword/model.py#L213 - перевірити вейк ворд логіну бо у нас щось не так
 
 class WakeWordDetector(private val context: Context) {
     
@@ -186,7 +186,7 @@ class WakeWordDetector(private val context: Context) {
             }
 
             for (i in numChunks - 1 downTo 0) {
-                val ndx = if (-8 * i == 0) melSpectrogramBuffer.size else -8 * i
+                val ndx = melSpectrogramBuffer.size - 8 * i
                 val start = maxOf(0, ndx - 76)
                 val end = ndx
                 
@@ -286,6 +286,7 @@ class WakeWordDetector(private val context: Context) {
         )
         
         val results = session.run(mapOf(session.inputNames.first() to inputTensor))
+        @Suppress("UNCHECKED_CAST")
         val output = results[0].value as Array<Array<Array<FloatArray>>>
         
         inputTensor.close()
@@ -343,6 +344,7 @@ class WakeWordDetector(private val context: Context) {
         
         val inputTensor = OnnxTensor.createTensor(env, input)
         val results = session.run(mapOf("input_1" to inputTensor))
+        @Suppress("UNCHECKED_CAST")
         val rawOutput = results[0].value as Array<Array<Array<FloatArray>>>
         
         inputTensor.close()
@@ -392,6 +394,7 @@ class WakeWordDetector(private val context: Context) {
 
         val inputTensor = OnnxTensor.createTensor(env, features)
         val results = session.run(mapOf(session.inputNames.first() to inputTensor))
+        @Suppress("UNCHECKED_CAST")
         val output = results[0].value as Array<FloatArray>
 
         inputTensor.close()
