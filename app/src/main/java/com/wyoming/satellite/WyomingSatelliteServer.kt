@@ -25,7 +25,7 @@ class WyomingSatelliteServer(
     private val deviceId: String,
     private val deviceName: String,
     private val port: Int = 10700,
-    private val eventCallback: (String) -> Unit
+    private val serverListener: WyomingServerListener
 ) {
     private val TAG = "WyomingSatelliteServer"
     private var nsdManager: NsdManager? = null

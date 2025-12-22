@@ -6,7 +6,7 @@ import android.util.Log
 class DebugAudioRecorder(
     private val sampleRate: Int = AudioConstants.SAMPLE_RATE,
     private val seconds: Int = 30,
-    private val audioProcessor: AudioProcessor
+    private val audioPlayer: WyomingAudioPlayer
 ) {
     private val TAG = "DebugAudioRecorder"
     private val bufferSize = sampleRate * seconds
@@ -60,7 +60,8 @@ class DebugAudioRecorder(
             return
         }
 
-        audioProcessor.playAudio(audio)
+        audioPlayer.setup(sampleRate) 
+        audioPlayer.playRaw(audio)
     }
 
     fun snapshot(): ShortArray {

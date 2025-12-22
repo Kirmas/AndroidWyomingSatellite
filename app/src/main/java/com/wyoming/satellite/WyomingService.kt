@@ -26,7 +26,7 @@ import com.konovalov.vad.silero.config.SampleRate as SileroSampleRate
 import com.konovalov.vad.silero.config.FrameSize as SileroFrameSize
 import com.konovalov.vad.silero.config.Mode as SileroMode
 
-class WyomingService : Service() {
+class WyomingService : Service(), WyomingServerListener {
     private var listeningOverlay: ListeningOverlay? = null
     private var lastWakeWordTime = 0L
     
@@ -55,7 +55,8 @@ class WyomingService : Service() {
         }
     }
     @Volatile private var isStreamingToServer = false
-    private var audioProcessor: AudioProcessor? = null
+    private var audioRecorder: WyomingAudioRecorder? = null
+    private var audioPlayer: WyomingAudioPlayer? = null
     private var wakeWordDetector: WakeWordDetector? = null
     // VAD
     private var vadWebRTC: VadWebRTC? = null
@@ -146,14 +147,16 @@ class WyomingService : Service() {
                     speechDurationMs = 50
                 )
 
-                // Initialize audio processor
-                audioProcessor = AudioProcessor(applicationContext) { audioData ->
+                // Initialize audio recorder
+                audioRecorder = WyomingAudioRecorder() { audioData ->
                     // Just buffer audio chunk
                     handleAudioChunk(audioData)
                 }
 
+                audioPlayer = WyomingAudioPlayer()
+
                 // Initialize debug helper together with other components
-                audioProcessor?.let { debugAudioRecorder = DebugAudioRecorder(audioProcessor = it) }
+                audioPlayer?.let { debugAudioRecorder = DebugAudioRecorder(audioPlayer = it) }
                 
                 // Initialize Wyoming Satellite server
                 wyomingServer = WyomingSatelliteServer(
@@ -161,14 +164,12 @@ class WyomingService : Service() {
                     deviceId = deviceId,
                     deviceName = deviceName,
                     port = 10700,
-                    eventCallback = { event: String ->
-                        // handleWyomingEvent(event)
-                    }
+                    serverListener = this@WyomingService
                 )
                 wyomingServer?.start()
                 
                 // Start audio capture
-                audioProcessor?.startRecording()
+                audioRecorder?.start()
 
                 // Start audio processing thread
                 startAudioProcessingThread()
@@ -347,7 +348,7 @@ class WyomingService : Service() {
     override fun onDestroy() {
         listeningOverlay?.hide()
         // 1. Stop audio streaming first
-        audioProcessor?.stopRecording()
+        audioRecorder?.stop()
 
         // 2. Stop audio processing thread
         stopAudioProcessingThread()
@@ -412,6 +413,16 @@ class WyomingService : Service() {
             .setContentIntent(pendingIntent)
             .build()
     }
+
+    override fun onStartStreaming() { }
+
+    override fun onStopStreaming() { }
+
+    override fun onAudioStart(rate: Int, width: Int, channels: Int) { }
+
+    override fun onAudioChunk(payload: ByteArray) { }
+
+    override fun onAudioStop() { }
 
     companion object {
         @Volatile var isRunning: Boolean = false
