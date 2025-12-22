@@ -131,7 +131,7 @@ class WyomingSatelliteServer(
 
     private fun handleMessage(msg: WyomingMessage, outputStream: OutputStream) {
         
-        if (msg.type != "audio" && msg.type != "ping") {
+        if (msg.type != "audio-chunk" && msg.type != "ping") {
             Log.d(TAG, "RX: ${msg}")
         }
 
