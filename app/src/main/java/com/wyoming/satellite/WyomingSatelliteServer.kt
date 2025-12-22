@@ -111,20 +111,22 @@ class WyomingSatelliteServer(
     }
 
     private suspend fun listenLoop() {
-try {
+        try {
             val inputStream = BufferedInputStream(clientSocket!!.getInputStream())
-            val outputStream = clientSocket!!.getOutputStream() // Беремо потік для запису
+            val outputStream = clientSocket!!.getOutputStream()
 
             while (isRunning) {
-                // МАГІЯ ТУТ: Всього один рядок для читання
                 val message = WyomingMessage.readFromStream(inputStream) ?: break
-                
-                // Обробка
                 handleMessage(message, outputStream)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Loop error", e)
         }
+    }
+
+    fun sendAudioPlayed() {
+        val outputStream = clientSocket!!.getOutputStream()
+        WyomingMessage(type = "played").send(outputStream)
     }
 
     private fun handleMessage(msg: WyomingMessage, outputStream: OutputStream) {
@@ -143,100 +145,23 @@ try {
             "transcribe" -> Log.i(TAG, "Transcribe command received not implemented")
             "voice-started" -> Log.i(TAG, "Voice-started event received not implemented")
             "voice-stopped" -> Log.i(TAG, "Voice-stopped event received not implemented")
-            "audio-started" -> Log.i(TAG, "Audio-started event received not implemented")
-            "audio-chunk" -> Log.i(TAG, "Audio-chunk event received not implemented")
-            "audio-stop" -> Log.i(TAG, "Audio-stopped event received not implemented")
+            "audio-start" -> {
+                val rate = msg.data.optInt("rate", 16000)
+                val width = msg.data.optInt("width", 2)
+                val channels = msg.data.optInt("channels", 1)
+                serverListener.onAudioStart(rate, width, channels)
+            }
+            "audio-chunk" -> {
+                val payloadLength = msg.metadata.optInt("payload_length", 0)
+                if (payloadLength > 0 && msg.payload != null && msg.payload.size == payloadLength) {
+                    serverListener.onAudioChunk(msg.payload)
+                } else {
+                    Log.w(TAG, "Audio-chunk message with invalid payload")
+                }
+            }
+            "audio-stop" -> serverListener.onAudioStop()
             "ping" -> WyomingMessage(type = "pong").send(outputStream)
             else -> Log.w(TAG, "Unknown message type: ${msg.type}")
-        }
-    }
-
-    fun sendDeviceInfo() {
-        val msg = JSONObject().apply {
-            put("type", "info")
-            put("device_id", deviceId)
-            put("name", deviceName)
-            put("capabilities", listOf("wake-word", "audio output"))
-        }
-        sendMessage(msg)
-    }
-
-    fun sendWakeWordDetected(wakeWordId: String) {
-        val msg = JSONObject().apply {
-            put("type", "event")
-            put("event", "wake_word_detected")
-            put("timestamp", System.currentTimeMillis())
-            put("wake_word_id", wakeWordId)
-            put("device_id", deviceId)
-        }
-        sendMessage(msg)
-    }
-
-    fun sendAudioFrame(audioData: ShortArray, rate: Int = 16000, width: Int = 2, channels: Int = 1) {
-        val byteBuffer = ByteArray(audioData.size * 2)
-        for (i in audioData.indices) {
-            byteBuffer[i * 2] = (audioData[i].toInt() and 0xFF).toByte()
-            byteBuffer[i * 2 + 1] = ((audioData[i].toInt() shr 8) and 0xFF).toByte()
-        }
-        val dataB64 = android.util.Base64.encodeToString(byteBuffer, android.util.Base64.NO_WRAP)
-        val msg = JSONObject().apply {
-            put("type", "audio")
-            put("codec", "pcm")
-            put("rate", rate)
-            put("width", width)
-            put("channels", channels)
-            put("data", dataB64)
-        }
-        sendMessage(msg)
-    }
-
-    fun sendEndOfAudio() {
-        val msg = JSONObject().apply {
-            put("type", "event")
-            put("event", "end_of_audio")
-        }
-        sendMessage(msg)
-    }
-
-    fun sendError(message: String) {
-        val msg = JSONObject().apply {
-            put("type", "event")
-            put("event", "error")
-            put("message", message)
-        }
-        sendMessage(msg)
-    }
-
-    private fun handleCommand(json: JSONObject) {
-        val command = json.optString("command", "")
-        when (command) {
-            "start_pipeline" -> {
-                val pipelineId = json.optString("pipeline_id", "")
-                val deviceId = json.optString("device_id", "")
-                Log.i(TAG, "Start pipeline: $pipelineId for $deviceId")
-                // TODO: Start listening for user command (no wake word)
-            }
-            "stop_listening" -> {
-                Log.i(TAG, "Stop listening command received")
-                // TODO: Stop audio capture
-            }
-            "set_volume" -> {
-                val volume = json.optDouble("volume", 1.0)
-                Log.i(TAG, "Set volume: $volume")
-                // TODO: Set device volume
-            }
-            else -> Log.w(TAG, "Unknown command: $command")
-        }
-    }
-
-    private fun handlePlayAudio(json: JSONObject) {
-        val dataB64 = json.optString("data", "")
-        val rate = json.optInt("rate", 16000)
-        val channels = json.optInt("channels", 1)
-        if (dataB64.isNotEmpty()) {
-            val audioBytes = android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT)
-            // TODO: Play audioBytes using Android AudioTrack
-            Log.i(TAG, "Playing audio: ${audioBytes.size} bytes, $rate Hz, $channels ch")
         }
     }
 
@@ -264,18 +189,6 @@ try {
                     put("width", 2)
                 })
             })
-        }
-    }
-
-    private fun sendMessage(msg: JSONObject) {
-        try {
-            val str = msg.toString() + "\n"
-            Log.d(TAG, "Send: $str")
-            val bytes = str.toByteArray(Charsets.UTF_8)
-            clientSocket?.getOutputStream()?.write(bytes)
-            clientSocket?.getOutputStream()?.flush()
-        } catch (e: Exception) {
-            Log.e(TAG, "Send error", e)
         }
     }
 

@@ -89,4 +89,20 @@ class WyomingAudioPlayer {
         }
         audioTrack = null
     }
+
+    fun stopAndAwait() {
+        audioTrack?.let { track ->
+            try {
+                track.stop()
+                var attempts = 0
+                while (track.playState != AudioTrack.PLAYSTATE_STOPPED && attempts < 100) {
+                    Thread.sleep(50) 
+                    attempts++
+                }
+                Log.d(TAG, "Playback finished naturally after ${attempts * 50}ms")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in stopAndAwait", e)
+            }
+        }
+    }
 }

@@ -304,7 +304,7 @@ class WyomingService : Service(), WyomingServerListener {
                             val score = wakeWordDetector?.detectWakeWord(audioData)
                             if (score != null && score > 0.05f) {
                                 Log.i(TAG, "🎤 Wake word detected with score: %.5f".format(score))
-                                wyomingServer?.sendWakeWordDetected("default")
+                                //wyomingServer?.sendWakeWordDetected("default")
                                 isStreamingToServer = true
                                 lastWakeWordTime = now
                                 listeningOverlay = ListeningOverlay(this)
@@ -313,7 +313,7 @@ class WyomingService : Service(), WyomingServerListener {
                         }
 
                         if (isStreamingToServer) {
-                            wyomingServer?.sendAudioFrame(audioData)
+                            //wyomingServer?.sendAudioFrame(audioData)
                             // Stop streaming if silence timeout
                             if (now - lastWakeWordTime > AudioConstants.STREAMING_TO_SERVER_TIMEOUT_MS) {
                                 isStreamingToServer = false
@@ -418,11 +418,25 @@ class WyomingService : Service(), WyomingServerListener {
 
     override fun onStopStreaming() { }
 
-    override fun onAudioStart(rate: Int, width: Int, channels: Int) { }
+    override fun onAudioStart(rate: Int, width: Int, channels: Int){
+        audioPlayer?.setup(
+            sampleRate = rate,
+            channels = channels,
+            width = width
+        )
 
-    override fun onAudioChunk(payload: ByteArray) { }
+        audioRecorder?.stop()
+    }
 
-    override fun onAudioStop() { }
+    override fun onAudioChunk(payload: ByteArray) { 
+        audioPlayer?.playChunk(payload)
+    }
+
+    override fun onAudioStop() { 
+        audioPlayer?.stopAndAwait()        
+        wyomingServer?.sendAudioPlayed()        
+        audioRecorder?.start()
+    }
 
     companion object {
         @Volatile var isRunning: Boolean = false
