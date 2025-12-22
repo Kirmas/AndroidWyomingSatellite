@@ -139,10 +139,13 @@ class WyomingService : Service() {
                 audioProcessor?.let { debugAudioRecorder = DebugAudioRecorder(audioProcessor = it) }
                 
                 // Initialize Wyoming Satellite server
-                wyomingServer = WyomingSatelliteServer(port = 10700, eventCallback = { event: String ->
-                    // Handle Wyoming protocol events from client (HA)
-                    // handleWyomingEvent(event)
-                })
+                wyomingServer = WyomingSatelliteServer(
+                    context = applicationContext,
+                    port = 10700, 
+                    eventCallback = { event: String ->
+                        // handleWyomingEvent(event)
+                    }
+                )
                 wyomingServer?.start()
                 
                 // Start audio capture
