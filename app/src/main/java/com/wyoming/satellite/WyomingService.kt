@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,22 @@ class WyomingService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
     
     private var wyomingServer: WyomingSatelliteServer? = null
+    private val prefs by lazy { applicationContext.getSharedPreferences("wyoming_settings", MODE_PRIVATE) }
+    private val deviceId: String by lazy {
+        prefs.getString("device_id", null) ?: run {
+            val id = Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID)
+            val value = "android_${id ?: System.currentTimeMillis()}"
+            prefs.edit().putString("device_id", value).apply()
+            value
+        }
+    }
+    private val deviceName: String by lazy {
+        prefs.getString("device_name", null) ?: run {
+            val name = "Android ${android.os.Build.MODEL ?: "Satellite"}"
+            prefs.edit().putString("device_name", name).apply()
+            name
+        }
+    }
     @Volatile private var isStreamingToServer = false
     private var audioProcessor: AudioProcessor? = null
     private var wakeWordDetector: WakeWordDetector? = null
@@ -141,7 +158,9 @@ class WyomingService : Service() {
                 // Initialize Wyoming Satellite server
                 wyomingServer = WyomingSatelliteServer(
                     context = applicationContext,
-                    port = 10700, 
+                    deviceId = deviceId,
+                    deviceName = deviceName,
+                    port = 10700,
                     eventCallback = { event: String ->
                         // handleWyomingEvent(event)
                     }

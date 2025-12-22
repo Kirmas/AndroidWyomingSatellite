@@ -20,17 +20,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * WyomingSatelliteServer — сервер Wyoming-протоколу для Home Assistant
- * Приймає підключення від HA, надсилає device_info, wake_word_detected, audio, події
- * Приймає команди (play_audio, pipeline, error тощо)
- */
 class WyomingSatelliteServer(
     private val context: Context,
+    private val deviceId: String,
+    private val deviceName: String,
     private val port: Int = 10700,
-    private val eventCallback: (String) -> Unit,
-    private val deviceId: String = "android_satellite_1",
-    private val deviceName: String = "Android Satellite"
+    private val eventCallback: (String) -> Unit
 ) {
     private val TAG = "WyomingSatelliteServer"
     private var nsdManager: NsdManager? = null
